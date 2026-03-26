@@ -8,10 +8,10 @@
       "name": "unsubscribe-mcp",
       "source": {
         "source": "npm",
-        "package": "@daveremy/unsubscribe-mcp"
+        "package": "unsubscribe-mcp"
       },
       "description": "MCP server for email unsubscribe — RFC 8058 one-click, GET fallback, mailto support",
-      "version": "0.1.0"
+      "version": "0.1.2"
     }
   ]
 }

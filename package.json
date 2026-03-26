@@ -25,8 +25,8 @@
     ".": "./dist/mcp.js"
   },
   "bin": {
-    "unsubscribe": "dist/cli.js",
-    "unsubscribe-mcp": "dist/mcp.js"
+    "unsubscribe": "./dist/cli.js",
+    "unsubscribe-mcp": "./dist/mcp.js"
   },
   "files": [
     "dist",
@@ -35,8 +35,9 @@
   ],
   "scripts": {
     "build": "tsc && chmod +x dist/cli.js dist/mcp.js",
-    "prepublishOnly": "npm run build",
+    "prepack": "npm run build",
     "dev": "tsx src/cli.ts",
+    "test": "echo \"no tests yet\"",
     "release": "./scripts/release.sh"
   },
   "dependencies": {

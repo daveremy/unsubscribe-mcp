@@ -4,37 +4,55 @@ MCP server for email unsubscribe — RFC 8058 one-click, GET fallback, mailto su
 
 Lets Claude Code agents unsubscribe from newsletters during email triage. No browser, no manual clicks.
 
-## Install
+## Install as Claude Code Plugin
 
 ```bash
-# As a Claude Code plugin
-claude plugin add @daveremy/unsubscribe-mcp
-
-# Or via npx (auto-installs)
-npx -y @daveremy/unsubscribe-mcp
+claude plugin marketplace add daveremy/unsubscribe-mcp
+claude plugin install unsubscribe-mcp@unsubscribe-mcp-plugins --scope user
 ```
 
-## Setup
+## Manual Install
+
+Install globally and add to your MCP config:
+
+```bash
+npm install -g unsubscribe-mcp
+```
+
+Then add to your MCP config (`.mcp.json` or Claude Code settings):
+
+```json
+{
+  "mcpServers": {
+    "unsubscribe-mcp": {
+      "command": "npx",
+      "args": ["-y", "unsubscribe-mcp"]
+    }
+  }
+}
+```
+
+## Auth Setup
 
 This server uses your existing [gws](https://github.com/nicholasgasior/gws) (Google Workspace CLI) credentials for Gmail access. No separate OAuth setup needed.
 
 ```bash
 # Install gws if you don't have it
-npm i -g @googleworkspace/cli
+npm install -g @googleworkspace/cli
 
 # Authenticate with Gmail
 gws auth
 ```
 
-## MCP Tools
+## Tools Reference
 
 | Tool | Description |
 |---|---|
-| `list_subscriptions` | Search Gmail for newsletters, grouped by sender |
-| `get_unsubscribe_info` | Parse List-Unsubscribe headers for a message |
-| `unsubscribe` | Execute unsubscribe: POST > GET > mailto fallback |
-| `bulk_unsubscribe` | Batch unsubscribe from multiple senders |
-| `unsubscribe_status` | View log of unsubscribe attempts |
+| `list_subscriptions` | Search Gmail for newsletters, grouped by sender with frequency stats |
+| `get_unsubscribe_info` | Parse List-Unsubscribe headers for a message — shows available methods |
+| `unsubscribe` | Execute unsubscribe: RFC 8058 POST > HTTPS GET > mailto fallback |
+| `bulk_unsubscribe` | Batch unsubscribe from multiple senders in one call |
+| `unsubscribe_status` | View session log of unsubscribe attempts |
 
 ## CLI Usage
 
@@ -56,6 +74,20 @@ unsubscribe bulk <id1> <id2> <id3>
 unsubscribe status
 ```
 
+## Skills
+
+This plugin bundles an `/unsubscribe` skill for conversational email triage:
+
+```
+/unsubscribe              # List newsletters and prompt for action
+/unsubscribe list         # Show all subscription candidates
+/unsubscribe info <id>    # Inspect unsubscribe options for a message
+/unsubscribe unsub <id>   # Unsubscribe from a specific message
+/unsubscribe status       # View attempt log
+```
+
+The skill orchestrates the MCP tools with safety checks — it always confirms before executing, and logs all attempts.
+
 ## How It Works
 
 Most marketing emails include a `List-Unsubscribe` header (required by Gmail since 2024 for bulk senders). This server parses that header and executes the unsubscribe automatically:
@@ -75,6 +107,9 @@ npm run dev -- list
 
 # Build
 npm run build
+
+# Verify package contents
+npm pack --dry-run
 
 # Release
 npm run release patch

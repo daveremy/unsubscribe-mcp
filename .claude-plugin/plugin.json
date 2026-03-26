@@ -1,7 +1,7 @@
 {
   "name": "unsubscribe-mcp",
   "description": "Unsubscribe from email newsletters via List-Unsubscribe headers",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "author": {
     "name": "daveremy"
   },

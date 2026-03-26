@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Release script for @daveremy/unsubscribe-mcp
+# Release script for unsubscribe-mcp
 # Usage: ./scripts/release.sh <patch|minor|major>
 
 BUMP=${1:-}
@@ -22,6 +22,10 @@ if [[ -n "$(git status --porcelain)" ]]; then
   echo "Error: working tree is not clean. Commit or stash changes first."
   exit 1
 fi
+
+# Run tests before bumping anything
+echo "Running tests..."
+npm test
 
 # Get current and new version
 OLD_VERSION=$(node -p "require('./package.json').version")
@@ -59,11 +63,12 @@ cl = cl.replace(
   /## \[Unreleased\]\n([\s\S]*?)(?=\n## |\n\[|$)/,
   \`## [Unreleased]\n\n## [\${v}] - \${today}\n\$1\`
 );
+// Update [Unreleased] link — handle both /compare/vX...HEAD and /commits/main
 cl = cl.replace(
   /\[Unreleased\]:.*$/m,
   \`[Unreleased]: https://github.com/daveremy/unsubscribe-mcp/compare/v\${v}...HEAD\`
 );
-const vLink = \`[\${v}]: https://github.com/daveremy/unsubscribe-mcp/compare/v${OLD_VERSION}...v\${v}\`;
+const vLink = \`[\${v}]: https://github.com/daveremy/unsubscribe-mcp/compare/v$OLD_VERSION...v\${v}\`;
 cl = cl.replace(/(\[Unreleased\]:.*\n)/, \`\$1\${vLink}\n\`);
 fs.writeFileSync(clf, cl);
 "
@@ -76,7 +81,7 @@ echo "Verifying package contents..."
 npm pack --dry-run
 
 echo ""
-read -p "Publish @daveremy/unsubscribe-mcp@$NEW_VERSION? [y/N] " -n 1 -r
+read -p "Publish unsubscribe-mcp@$NEW_VERSION? [y/N] " -n 1 -r
 echo ""
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
   echo "Aborted. Version bumped but not committed."
@@ -95,7 +100,7 @@ npm publish --access public
 git push origin main
 git push origin "v$NEW_VERSION"
 
-echo "Published @daveremy/unsubscribe-mcp@$NEW_VERSION"
+echo "Published unsubscribe-mcp@$NEW_VERSION"
 
 # Update aggregated marketplace if available
 PLUGINS_DIR="$HOME/code/claude-plugins"
