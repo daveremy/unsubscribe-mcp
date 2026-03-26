@@ -10,7 +10,7 @@
   "mcpServers": {
     "unsubscribe-mcp": {
       "command": "npx",
-      "args": ["-y", "@daveremy/unsubscribe-mcp"]
+      "args": ["-y", "unsubscribe-mcp"]
     }
   }
 }
