@@ -1,0 +1,16 @@
+{
+  "name": "unsubscribe-mcp",
+  "description": "Unsubscribe from email newsletters via List-Unsubscribe headers",
+  "version": "0.1.0",
+  "author": {
+    "name": "daveremy"
+  },
+  "homepage": "https://github.com/daveremy/unsubscribe-mcp",
+  "repository": "https://github.com/daveremy/unsubscribe-mcp",
+  "mcpServers": {
+    "unsubscribe-mcp": {
+      "command": "npx",
+      "args": ["-y", "@daveremy/unsubscribe-mcp"]
+    }
+  }
+}

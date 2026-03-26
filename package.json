@@ -1,0 +1,52 @@
+{
+  "name": "@daveremy/unsubscribe-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for email unsubscribe — RFC 8058 one-click, GET fallback, mailto support",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "unsubscribe",
+    "email",
+    "gmail",
+    "newsletter",
+    "mcp",
+    "model-context-protocol",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daveremy/unsubscribe-mcp.git"
+  },
+  "main": "./dist/mcp.js",
+  "exports": {
+    ".": "./dist/mcp.js"
+  },
+  "bin": {
+    "unsubscribe": "./dist/cli.js",
+    "unsubscribe-mcp": "./dist/mcp.js"
+  },
+  "files": [
+    "dist",
+    ".claude-plugin",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/cli.js dist/mcp.js",
+    "prepublishOnly": "npm run build",
+    "dev": "tsx src/cli.ts",
+    "release": "./scripts/release.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "commander": "^14.0.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
+  }
+}
