@@ -1,23 +1,33 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createDecipheriv } from "node:crypto";
 import type {
   GmailMessage,
   GmailMessageListResponse,
 } from "./types.js";
 
-const execFileAsync = promisify(execFile);
-
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+
+interface GwsCredentials {
+  client_id: string;
+  client_secret: string;
+  refresh_token: string;
+  type: string;
+}
 
 /**
  * Gmail API client that piggybacks on gws (Google Workspace CLI) credentials.
  *
  * Auth strategy:
- * 1. Run `gws auth export` to get the decrypted refresh token + client credentials
- * 2. Exchange refresh token for an access token via Google OAuth2 token endpoint
+ * 1. Read ~/.config/gws/.encryption_key and decrypt credentials.enc (AES-256-GCM)
+ * 2. Exchange refresh token for a fresh access token via Google OAuth2 endpoint
  * 3. Use Gmail API directly with that access token
- * 4. If gws is not installed or not authenticated, throw with helpful error
+ *
+ * Falls back to plaintext credentials.json if the encrypted file is unavailable.
+ * Note: gws auth export redacts tokens — do NOT use it; read the files directly.
  */
 export class GmailClient {
   private accessToken: string;
@@ -43,94 +53,84 @@ export class GmailClient {
 
   /**
    * Create a GmailClient from gws credentials.
-   * Shells out to `gws auth export` to read decrypted credentials.
+   * Reads the encrypted gws credential store at ~/.config/gws/.
    */
   static async fromGws(): Promise<GmailClient> {
-    let exported: {
-      client_id: string;
-      client_secret: string;
-      refresh_token: string;
-      type: string;
-    };
+    const configDir = join(homedir(), ".config", "gws");
+    const creds = await GmailClient.readGwsCredentials(configDir);
 
-    try {
-      // Find gws binary — may be in PATH or common locations
-      const gwsPaths = [
-        "gws",
-        "/opt/homebrew/bin/gws",
-        "/usr/local/bin/gws",
-      ];
-      let output = "";
-      let lastError: Error | null = null;
-
-      for (const gwsPath of gwsPaths) {
-        try {
-          const result = await execFileAsync(gwsPath, ["auth", "export"]);
-          output = result.stdout;
-          break;
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-        }
-      }
-
-      if (!output) {
-        throw (
-          lastError ??
-          new Error("gws not found — install with: npm i -g @googleworkspace/cli")
-        );
-      }
-
-      // gws may output a preamble line before the JSON (e.g. "Using keyring backend: keyring")
-      const jsonStart = output.indexOf("{");
-      if (jsonStart === -1) {
-        throw new Error("gws auth export returned no JSON — run: gws auth login");
-      }
-      exported = JSON.parse(output.slice(jsonStart));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (
-        msg.includes("not found") ||
-        msg.includes("ENOENT") ||
-        msg.includes("command not found")
-      ) {
-        throw new Error(
-          "Gmail access required. gws CLI not found.\n" +
-            "Run: npm i -g @googleworkspace/cli && gws auth login",
-        );
-      }
-      if (msg.includes("No credentials") || msg.includes("not authenticated")) {
-        throw new Error(
-          "Gmail access required. gws is not authenticated.\n" +
-            "Run: gws auth login",
-        );
-      }
-      throw new Error(`Failed to read gws credentials: ${msg}`);
-    }
-
-    if (!exported.refresh_token || !exported.client_id || !exported.client_secret) {
-      throw new Error(
-        "Gmail access required. gws credentials are incomplete.\n" +
-          "Run: gws auth login",
-      );
-    }
-
-    // Exchange refresh token for access token
     const { accessToken, grantedScopes } = await GmailClient.refreshAccessToken(
-      exported.client_id,
-      exported.client_secret,
-      exported.refresh_token,
+      creds.client_id,
+      creds.client_secret,
+      creds.refresh_token,
     );
 
-    // Validate that a Gmail read scope is present
     GmailClient.validateScopes(grantedScopes);
 
     return new GmailClient(
       accessToken,
-      exported.refresh_token,
-      exported.client_id,
-      exported.client_secret,
+      creds.refresh_token,
+      creds.client_id,
+      creds.client_secret,
       grantedScopes,
     );
+  }
+
+  /**
+   * Read and decrypt gws credentials from ~/.config/gws/.
+   * Tries encrypted credentials.enc first, then plaintext credentials.json.
+   *
+   * IMPORTANT: gws auth export redacts credentials (truncates refresh_token,
+   * client_secret). We must read the files directly.
+   *
+   * Encryption: AES-256-GCM
+   * Key file:   .encryption_key  (base64url, no padding, 32-byte key)
+   * Data file:  credentials.enc  ([12B nonce][ciphertext][16B auth tag])
+   */
+  private static async readGwsCredentials(
+    configDir: string,
+  ): Promise<GwsCredentials> {
+    const encKeyPath = join(configDir, ".encryption_key");
+    const encCredPath = join(configDir, "credentials.enc");
+
+    try {
+      const keyB64 = (await readFile(encKeyPath, "utf-8")).trim();
+      // Key is base64url without padding — add == for Buffer.from compatibility
+      const key = Buffer.from(keyB64 + "==", "base64");
+      const data = await readFile(encCredPath);
+
+      // Layout: [12-byte nonce][ciphertext][16-byte GCM auth tag]
+      const nonce = data.subarray(0, 12);
+      const tag = data.subarray(data.length - 16);
+      const ct = data.subarray(12, data.length - 16);
+
+      const decipher = createDecipheriv("aes-256-gcm", key, nonce);
+      decipher.setAuthTag(tag);
+      const plain = Buffer.concat([decipher.update(ct), decipher.final()]);
+      const parsed = JSON.parse(plain.toString("utf-8")) as GwsCredentials;
+
+      if (!parsed.refresh_token || !parsed.client_id || !parsed.client_secret) {
+        throw new Error("Decrypted credentials are incomplete");
+      }
+      return parsed;
+    } catch {
+      // Fall back to plaintext credentials.json
+      const plainPath = join(configDir, "credentials.json");
+      try {
+        const raw = await readFile(plainPath, "utf-8");
+        const parsed = JSON.parse(raw) as GwsCredentials;
+        if (!parsed.refresh_token || !parsed.client_id || !parsed.client_secret) {
+          throw new Error("Credentials file is incomplete");
+        }
+        return parsed;
+      } catch {
+        throw new Error(
+          "Gmail access required. gws credentials not found or could not be decrypted.\n" +
+            "Install and authenticate: npm i -g @googleworkspace/cli && gws auth login\n" +
+            `Expected: ${configDir}/credentials.enc or ${configDir}/credentials.json`,
+        );
+      }
+    }
   }
 
   /**
@@ -179,7 +179,7 @@ export class GmailClient {
 
   /**
    * Validate that required Gmail scopes are present.
-   * Accepts any scope that implies Gmail read access.
+   * Accepts any scope that implies Gmail read access (readonly, modify, mail.google.com).
    * Warns if gmail.send is missing (needed for mailto fallback).
    */
   private static validateScopes(grantedScopes: string[]): void {
@@ -190,7 +190,7 @@ export class GmailClient {
     // Broader scopes (modify, full access, legacy mail.google.com) all imply read access.
     const readImplyingScopes = [
       GMAIL_READONLY_SCOPE,
-      "https://www.googleapis.com/auth/gmail.modify",
+      GMAIL_MODIFY_SCOPE,
       "https://www.googleapis.com/auth/gmail.labels",
       "https://mail.google.com/",
     ];
@@ -209,6 +209,7 @@ export class GmailClient {
     // gmail.send is needed for mailto fallback — warn but don't fail
     const hasSendScope =
       grantedScopes.includes(GMAIL_SEND_SCOPE) ||
+      grantedScopes.includes(GMAIL_MODIFY_SCOPE) ||
       grantedScopes.includes("https://mail.google.com/");
     if (!hasSendScope) {
       // Log to stderr so it doesn't pollute MCP stdio
@@ -220,12 +221,13 @@ export class GmailClient {
   }
 
   /**
-   * Check if mailto unsubscribes are supported (gmail.send scope present).
+   * Check if mailto unsubscribes are supported (gmail.send or gmail.modify scope present).
    */
   hasMailtoSupport(): boolean {
     if (this.grantedScopes.length === 0) return true; // assume yes if unknown
     return (
       this.grantedScopes.includes(GMAIL_SEND_SCOPE) ||
+      this.grantedScopes.includes(GMAIL_MODIFY_SCOPE) ||
       this.grantedScopes.includes("https://mail.google.com/")
     );
   }
@@ -324,7 +326,7 @@ export class GmailClient {
       body,
     ].join("\r\n");
 
-    // Base64url encode: use native Node.js base64url encoding (Node 14.18+)
+    // base64url encoding (Node 14.18+)
     const encoded = Buffer.from(raw).toString("base64url");
 
     await this.request<unknown>("/messages/send", {
