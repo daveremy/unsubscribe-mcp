@@ -1,12 +1,15 @@
 import type { GmailClient } from "../client.js";
 import type { SenderSummary, ToolResponse } from "../types.js";
 import { textResult, errorTextResult } from "./format.js";
-import { getHeader } from "../parser.js";
+import { getHeader, parseSenderName, parseSenderEmail } from "../parser.js";
 
 export interface ListSubscriptionsArgs {
   max_results?: number;
   query?: string;
 }
+
+/** Max concurrent getMessage calls to avoid Gmail API rate limiting */
+const FETCH_CONCURRENCY = 8;
 
 export async function handleListSubscriptions(
   client: GmailClient,
@@ -40,7 +43,13 @@ export async function handleListSubscriptions(
     );
   }
 
-  // Fetch headers for each message and group by sender
+  // Fetch headers in parallel with bounded concurrency
+  const messages = await fetchConcurrent(
+    messageRefs.map((ref) => () => client.getMessage(ref.id, "metadata").catch(() => null)),
+    FETCH_CONCURRENCY,
+  );
+
+  // Group by sender email
   const senderMap = new Map<
     string,
     {
@@ -53,15 +62,9 @@ export async function handleListSubscriptions(
     }
   >();
 
-  // Process sequentially to avoid rate limits
-  for (const ref of messageRefs) {
-    let message;
-    try {
-      message = await client.getMessage(ref.id, "metadata");
-    } catch {
-      // Skip messages we can't fetch
-      continue;
-    }
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (!message) continue;
 
     const headers = message.payload.headers;
     const from = getHeader(headers, "From") ?? "";
@@ -74,6 +77,7 @@ export async function handleListSubscriptions(
 
     const senderEmail = parseSenderEmail(from);
     const senderName = parseSenderName(from);
+    const ref = messageRefs[i];
 
     const existing = senderMap.get(senderEmail);
     if (!existing) {
@@ -87,8 +91,7 @@ export async function handleListSubscriptions(
       });
     } else {
       existing.messageCount++;
-      // Keep the most recent (first in list — Gmail returns newest first)
-      // latestDate/subject/messageId already set to first seen = most recent
+      // Gmail returns newest first; first-seen entry is already the most recent
     }
   }
 
@@ -110,14 +113,25 @@ export async function handleListSubscriptions(
   );
 }
 
-function parseSenderName(from: string): string {
-  const match = from.match(/^"?([^"<]+)"?\s*</);
-  if (match) return match[1].trim();
-  return from.replace(/<[^>]+>/, "").trim() || from;
+/**
+ * Execute an array of async tasks with bounded concurrency.
+ */
+async function fetchConcurrent<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let index = 0;
+
+  const worker = async (): Promise<void> => {
+    while (index < tasks.length) {
+      const i = index++;
+      results[i] = await tasks[i]();
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, worker);
+  await Promise.all(workers);
+  return results;
 }
 
-function parseSenderEmail(from: string): string {
-  const match = from.match(/<([^>]+)>/);
-  if (match) return match[1].trim();
-  return from.trim();
-}

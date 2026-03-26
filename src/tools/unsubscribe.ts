@@ -2,7 +2,7 @@ import type { GmailClient } from "../client.js";
 import type { UnsubscribeResult, UnsubscribeMethod, ToolResponse } from "../types.js";
 import { textResult, errorTextResult } from "./format.js";
 import { addLogEntry } from "./status-log.js";
-import { handleGetUnsubscribeInfo } from "./get-unsubscribe-info.js";
+import { fetchUnsubscribeInfo } from "./get-unsubscribe-info.js";
 import { parseMailtoUrl } from "../parser.js";
 
 export interface UnsubscribeArgs {
@@ -23,27 +23,12 @@ export async function handleUnsubscribe(
   const dryRun = args.dry_run ?? false;
 
   // Fetch and parse unsubscribe info
-  const infoResult = await handleGetUnsubscribeInfo(client, {
-    message_id: args.message_id,
-  });
-  if (infoResult.isError) return infoResult;
-
-  let info: {
-    messageId: string;
-    senderName: string;
-    senderEmail: string;
-    subject: string;
-    httpsUrls: string[];
-    mailtoUrls: string[];
-    supportsOneClick: boolean;
-    recommendedMethod: UnsubscribeMethod;
-    availableMethods: UnsubscribeMethod[];
-  };
-
+  let info;
   try {
-    info = JSON.parse(infoResult.content[0].text);
-  } catch {
-    return errorTextResult("Failed to parse unsubscribe info response.");
+    info = await fetchUnsubscribeInfo(client, args.message_id);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return errorTextResult(`Failed to fetch message ${args.message_id}: ${msg}`);
   }
 
   // Validate and resolve method

@@ -117,6 +117,24 @@ export function rankMethods(
 }
 
 /**
+ * Extract the display name from a From header like "Name <email>" or just "email".
+ */
+export function parseSenderName(from: string): string {
+  const match = from.match(/^"?([^"<]+)"?\s*</);
+  if (match) return match[1].trim();
+  return from.replace(/<[^>]+>/, "").trim() || from;
+}
+
+/**
+ * Extract the email address from a From header like "Name <email>" or just "email".
+ */
+export function parseSenderEmail(from: string): string {
+  const match = from.match(/<([^>]+)>/);
+  if (match) return match[1].trim();
+  return from.trim();
+}
+
+/**
  * Extract a header value from Gmail message headers (case-insensitive).
  */
 export function getHeader(

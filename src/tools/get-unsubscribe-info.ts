@@ -7,6 +7,8 @@ import {
   extractMailtoUrls,
   rankMethods,
   getHeader,
+  parseSenderName,
+  parseSenderEmail,
 } from "../parser.js";
 import { textResult, errorTextResult } from "./format.js";
 
@@ -14,18 +16,18 @@ export interface GetUnsubscribeInfoArgs {
   message_id: string;
 }
 
-export async function handleGetUnsubscribeInfo(
+/**
+ * Fetch and parse unsubscribe info for a message.
+ * Returns a typed UnsubscribeInfo or throws on API failure.
+ *
+ * This is the shared implementation used by both the MCP tool wrapper
+ * and unsubscribe.ts (to avoid re-parsing JSON output between tools).
+ */
+export async function fetchUnsubscribeInfo(
   client: GmailClient,
-  args: GetUnsubscribeInfoArgs,
-): Promise<ToolResponse> {
-  let message;
-  try {
-    message = await client.getMessage(args.message_id, "metadata");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return errorTextResult(`Failed to fetch message ${args.message_id}: ${msg}`);
-  }
-
+  messageId: string,
+): Promise<UnsubscribeInfo> {
+  const message = await client.getMessage(messageId, "metadata");
   const headers = message.payload.headers;
 
   const from = getHeader(headers, "From") ?? "";
@@ -34,8 +36,8 @@ export async function handleGetUnsubscribeInfo(
   const listUnsubPost = getHeader(headers, "List-Unsubscribe-Post");
 
   if (!listUnsub) {
-    const info: UnsubscribeInfo = {
-      messageId: args.message_id,
+    return {
+      messageId,
       senderName: parseSenderName(from),
       senderEmail: parseSenderEmail(from),
       subject,
@@ -46,7 +48,6 @@ export async function handleGetUnsubscribeInfo(
       recommendedMethod: "manual",
       availableMethods: ["manual"],
     };
-    return textResult(JSON.stringify(info, null, 2));
   }
 
   const allUrls = parseListUnsubscribeHeader(listUnsub);
@@ -55,8 +56,8 @@ export async function handleGetUnsubscribeInfo(
   const supportsOneClick = isOneClickSupported(listUnsubPost);
   const availableMethods = rankMethods(httpsUrls, mailtoUrls, supportsOneClick);
 
-  const info: UnsubscribeInfo = {
-    messageId: args.message_id,
+  return {
+    messageId,
     senderName: parseSenderName(from),
     senderEmail: parseSenderEmail(from),
     subject,
@@ -68,24 +69,18 @@ export async function handleGetUnsubscribeInfo(
     recommendedMethod: availableMethods[0],
     availableMethods,
   };
-
-  return textResult(JSON.stringify(info, null, 2));
 }
 
-/**
- * Extract display name from a From header like "Name <email>" or just "email".
- */
-function parseSenderName(from: string): string {
-  const match = from.match(/^"?([^"<]+)"?\s*</);
-  if (match) return match[1].trim();
-  return from.replace(/<[^>]+>/, "").trim() || from;
+export async function handleGetUnsubscribeInfo(
+  client: GmailClient,
+  args: GetUnsubscribeInfoArgs,
+): Promise<ToolResponse> {
+  try {
+    const info = await fetchUnsubscribeInfo(client, args.message_id);
+    return textResult(JSON.stringify(info, null, 2));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return errorTextResult(`Failed to fetch message ${args.message_id}: ${msg}`);
+  }
 }
 
-/**
- * Extract email address from a From header like "Name <email>" or just "email".
- */
-function parseSenderEmail(from: string): string {
-  const match = from.match(/<([^>]+)>/);
-  if (match) return match[1].trim();
-  return from.trim();
-}

@@ -1,6 +1,6 @@
 {
-  "name": "@daveremy/unsubscribe-mcp",
-  "version": "0.1.0",
+  "name": "unsubscribe-mcp",
+  "version": "0.1.1",
   "description": "MCP server for email unsubscribe — RFC 8058 one-click, GET fallback, mailto support",
   "type": "module",
   "license": "MIT",

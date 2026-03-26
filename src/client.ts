@@ -96,7 +96,7 @@ export class GmailClient {
     try {
       const keyB64 = (await readFile(encKeyPath, "utf-8")).trim();
       // Key is base64url without padding — add == for Buffer.from compatibility
-      const key = Buffer.from(keyB64 + "==", "base64");
+      const key = Buffer.from(keyB64, "base64url");
       const data = await readFile(encCredPath);
 
       // Layout: [12-byte nonce][ciphertext][16-byte GCM auth tag]
